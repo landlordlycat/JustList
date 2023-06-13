@@ -4,7 +4,6 @@ from concurrent.futures import as_completed
 
 from altfe.interface.cloud import interCloud
 from app.lib.core.aliyundrive.aliyundrive import AliyunDrive
-from app.lib.core.onedrive.onedrive import Utils
 
 
 @interCloud.bind("cloud_aliyundrive", "LIB_CORE")
@@ -20,6 +19,7 @@ class CoreAliyunDrive(interCloud):
     def auto(self):
         if self.conf["accounts"] is None:
             return
+        self.is_on = True
         _token = self.loadConfig(self.getENV("rootPathFrozen") + "app/config/.token/aliyundrive.json", default={})
         for u in self.conf["accounts"]:
             if u not in _token:
@@ -42,18 +42,19 @@ class CoreAliyunDrive(interCloud):
     def __check(self):
         while True:
             tim = time.time()
-            try:
-                isUp = False
-                for u in self.api:
-                    if tim > self.api[u].get_token("expire") - 600:
+            isUP = False
+            for u in self.api:
+                if tim > self.api[u].get_token("expire") - 600:
+                    try:
                         self.api[u].do_refresh_token()
-                        isUp = True
-                if isUp:
-                    self.__save_token()
-                if tim > self.listOutdated:
-                    self.load_list()
-            except Exception as e:
-                self.STATIC.localMsger.error(e)
+                    except Exception as e:
+                        self.STATIC.localMsger.error(e)
+                    else:
+                        isUP = True
+            if isUP:
+                self.__save_token()
+            if tim > self.listOutdated:
+                self.load_list()
             time.sleep(self.conf["sys_checkTime"])
 
     def __save_token(self):
@@ -63,6 +64,8 @@ class CoreAliyunDrive(interCloud):
         self.STATIC.file.aout(self.getENV("rootPathFrozen") + "app/config/.token/aliyundrive.json", r)
 
     def load_list(self):
+        if self.is_on is False:
+            return False
         for u in self.conf["accounts"].copy():
             self.inCheck = True
             tmp = []
@@ -72,13 +75,11 @@ class CoreAliyunDrive(interCloud):
             except Exception as e:
                 self.STATIC.localMsger.error(e)
             else:
-                self.lock.acquire()
                 self.dirPassword[u] = psws
                 self.list[u] = tuple(tmp)
-                self.lock.release()
+                self.listOutdated = time.time() + self.conf["sys_dataExpiredTime"]
                 print(f"[AliyunDrive] {u} list updated at " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
             self.inCheck = False
-        self.listOutdated = time.time() + self.conf["sys_dataExpiredTime"]
         return True
 
     def __pro_load_list(self, user, arr, nowID="root", strURI="", rootIndex=0):
@@ -104,16 +105,17 @@ class CoreAliyunDrive(interCloud):
             item = {
                 "isFolder": file["type"] == "folder",
                 "createTime": 0,
-                "lastOpTime": Utils.formatTime(file["updated_at"]),
+                "lastOpTime": self.STATIC.util.format_time(file["updated_at"]),
                 "parentId": file["parent_file_id"],
                 "fileId": file["file_id"],
                 "filePath": strURI + "/" + file["name"],
                 "fileName": str(file["name"]),
-                "fileSize": Utils.getSize(file["size"]) if file["type"] != "folder" else -1,
+                "fileSize": self.STATIC.util.format_size(file["size"]) if file["type"] != "folder" else -1,
                 "fileType": None,
                 "child": [],
                 "user": user,
-                "isSecret": False
+                "isSecret": False,
+                "driveName": "aliyundrive"
             }
             if not item["isFolder"]:
                 item["fileType"] = str(item["fileName"]).split(".")[-1]
@@ -130,4 +132,10 @@ class CoreAliyunDrive(interCloud):
             return self.api[user].get_download_url(fid)
         except Exception as e:
             self.STATIC.localMsger.error(e)
-            return False
+            self.STATIC.localMsger.green(f"[AliyunDrive] {user} try to login")
+            try:
+                self.api[user].do_refresh_token()
+                return self.api[user].get_download_url(fid)
+            except Exception as ee:
+                self.STATIC.localMsger.error(ee)
+        return False

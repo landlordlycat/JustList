@@ -11,13 +11,24 @@ class interCloud(interRoot):
     """
 
     def __init__(self):
+        self.api = {}
         self.list = {}
         self.dirPassword = {}
         self.lock = threading.Lock()
         self.inCheck = False
+        self.is_on = False
+
+    def auto(self):
+        return None
+
+    def __check(self):
+        return None
+
+    def __save_token(self):
+        return None
 
     def load_list(self):
-        return True
+        return None
 
     def locate_all(self, user, password=()):
         return self.filter_verify_password(self.list[user], self.dirPassword[user], password)
